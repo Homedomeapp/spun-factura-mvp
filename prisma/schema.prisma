@@ -1,0 +1,256 @@
+// SPUN Factura - Database Schema
+// Using Prisma with Supabase (PostgreSQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// =====================================================
+// PROFESIONALES (usuarios de SPUN Factura)
+// =====================================================
+model Profesional {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id") // Supabase Auth user ID
+  
+  // Datos fiscales (obligatorios)
+  nif            String   @unique
+  nombreFiscal   String   @map("nombre_fiscal")
+  direccionFiscal String  @map("direccion_fiscal")
+  codigoPostal   String   @map("codigo_postal")
+  municipio      String
+  provincia      String
+  
+  // Contacto
+  email    String
+  telefono String?
+  
+  // Configuración facturación
+  serieFactura  String  @default("A") @map("serie_factura")
+  ultimoNumero  Int     @default(0) @map("ultimo_numero")
+  retencionIrpfDefecto Int @default(0) @map("retencion_irpf_defecto") // 0, 7, 15
+  
+  // Verifacti
+  verifactiEmisorId           String?   @map("verifacti_emisor_id")
+  verifactiRepresentacionFirmada Boolean @default(false) @map("verifacti_representacion_firmada")
+  verifactiFechaAlta          DateTime? @map("verifacti_fecha_alta")
+  
+  // Datos SPUN (para analytics, opcionales)
+  categoriaPrincipal String? @map("categoria_principal")
+  tamanoEquipo       Int?    @map("tamano_equipo")
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  clientes  Cliente[]
+  facturas  Factura[]
+  
+  @@map("profesionales")
+}
+
+// =====================================================
+// CLIENTES
+// =====================================================
+model Cliente {
+  id            String @id @default(uuid())
+  profesionalId String @map("profesional_id")
+  
+  // Identificación
+  tipo   TipoCliente
+  nif    String? // Puede ser NULL para particulares sin NIF
+  nombre String
+  
+  // Dirección
+  direccion    String?
+  codigoPostal String? @map("codigo_postal")
+  municipio    String?
+  provincia    String?
+  pais         String  @default("ES")
+  
+  // Contacto
+  email    String?
+  telefono String?
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  profesional Profesional @relation(fields: [profesionalId], references: [id], onDelete: Cascade)
+  facturas    Factura[]
+  
+  @@map("clientes")
+}
+
+enum TipoCliente {
+  persona
+  empresa
+  intracomunitario
+  extracomunitario
+}
+
+// =====================================================
+// FACTURAS
+// =====================================================
+model Factura {
+  id            String @id @default(uuid())
+  profesionalId String @map("profesional_id")
+  clienteId     String @map("cliente_id")
+  
+  // Identificación factura (INMUTABLE una vez creada)
+  serie  String
+  numero Int
+  
+  // Tipo de factura
+  tipo TipoFactura
+  
+  // Si es rectificativa, referencia a la original
+  facturaRectificadaId String?  @map("factura_rectificada_id")
+  motivoRectificacion  String?  @map("motivo_rectificacion")
+  
+  // Fechas
+  fechaExpedicion DateTime @map("fecha_expedicion")
+  fechaOperacion  DateTime? @map("fecha_operacion") // Si distinta de expedición
+  
+  // Descripción general
+  descripcion String?
+  
+  // Totales
+  baseImponible   Decimal @map("base_imponible") @db.Decimal(12, 2)
+  totalIva        Decimal @map("total_iva") @db.Decimal(12, 2)
+  totalRetencion  Decimal @default(0) @map("total_retencion") @db.Decimal(12, 2)
+  total           Decimal @db.Decimal(12, 2)
+  
+  // Inversión sujeto pasivo (ISP)
+  inversionSujetoPasivo Boolean @default(false) @map("inversion_sujeto_pasivo")
+  
+  // Estado
+  estado EstadoFactura @default(borrador)
+  
+  // Verifacti
+  verifactiId        String?   @map("verifacti_id")
+  verifactiCsv       String?   @map("verifacti_csv")
+  verifactiQrData    String?   @map("verifacti_qr_data")
+  verifactiEstado    String?   @map("verifacti_estado")
+  verifactiRespuesta Json?     @map("verifacti_respuesta")
+  verifactiEnviadaAt DateTime? @map("verifacti_enviada_at")
+  
+  // PDF
+  pdfUrl        String?   @map("pdf_url")
+  pdfGeneradoAt DateTime? @map("pdf_generado_at")
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  
+  // Relations
+  profesional        Profesional     @relation(fields: [profesionalId], references: [id], onDelete: Restrict)
+  cliente            Cliente         @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+  facturaRectificada Factura?        @relation("Rectificativas", fields: [facturaRectificadaId], references: [id])
+  rectificativas     Factura[]       @relation("Rectificativas")
+  lineas             LineaFactura[]
+  desgloseIva        DesgloseIva[]
+  eventos            EventoFactura[]
+  
+  @@unique([profesionalId, serie, numero])
+  @@map("facturas")
+}
+
+enum TipoFactura {
+  F1 // Factura ordinaria
+  F2 // Factura simplificada
+  R1 // Rectificativa (art. 80.1, 80.2 y 80.6 LIVA)
+  R2 // Rectificativa (art. 80.3 LIVA)
+  R3 // Rectificativa (art. 80.4 LIVA)
+  R4 // Rectificativa otros
+  R5 // Rectificativa en facturas simplificadas
+}
+
+enum EstadoFactura {
+  borrador
+  pendiente
+  registrada
+  error
+  anulada
+}
+
+// =====================================================
+// LÍNEAS DE FACTURA
+// =====================================================
+model LineaFactura {
+  id        String @id @default(uuid())
+  facturaId String @map("factura_id")
+  orden     Int
+  
+  // Descripción
+  descripcion String
+  
+  // Cantidades
+  cantidad          Decimal @default(1) @db.Decimal(10, 3)
+  precioUnitario    Decimal @map("precio_unitario") @db.Decimal(12, 4)
+  descuentoPorcentaje Decimal @default(0) @map("descuento_porcentaje") @db.Decimal(5, 2)
+  
+  // IVA por línea
+  tipoIva      Int    @map("tipo_iva") // 0, 4, 10, 21
+  causaExencion String? @map("causa_exencion") // 'ISP', 'exento_art20', etc.
+  
+  // Calculados
+  baseLinea Decimal @map("base_linea") @db.Decimal(12, 2)
+  cuotaIva  Decimal @map("cuota_iva") @db.Decimal(12, 2)
+  
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  factura Factura @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  
+  @@unique([facturaId, orden])
+  @@map("lineas_factura")
+}
+
+// =====================================================
+// DESGLOSE IVA (agregado por tipo)
+// =====================================================
+model DesgloseIva {
+  id        String @id @default(uuid())
+  facturaId String @map("factura_id")
+  
+  tipoIva       Int     @map("tipo_iva")
+  baseImponible Decimal @map("base_imponible") @db.Decimal(12, 2)
+  cuota         Decimal @db.Decimal(12, 2)
+  
+  // Para ISP
+  esInversionSujetoPasivo Boolean @default(false) @map("es_inversion_sujeto_pasivo")
+  
+  // Relations
+  factura Factura @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  
+  @@unique([facturaId, tipoIva, esInversionSujetoPasivo])
+  @@map("desglose_iva")
+}
+
+// =====================================================
+// LOG DE EVENTOS (auditoría)
+// =====================================================
+model EventoFactura {
+  id        String @id @default(uuid())
+  facturaId String @map("factura_id")
+  
+  tipo        String // 'creada', 'enviada', 'registrada', 'error', 'anulada', 'rectificada'
+  descripcion String?
+  datos       Json?
+  
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  factura Factura @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  
+  @@map("eventos_factura")
+}
