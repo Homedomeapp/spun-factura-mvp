@@ -1,10 +1,9 @@
-import React from "react";
-
 export default function DashboardPage() {
   return (
-    <div>
+    <main>
       <h1>Dashboard</h1>
       <p>Bienvenido a SPUN Factura</p>
-    </div>
+      <p>Tu panel de facturación estará disponible pronto.</p>
+    </main>
   );
 }
