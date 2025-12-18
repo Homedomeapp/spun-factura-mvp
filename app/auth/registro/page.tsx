@@ -25,7 +25,7 @@ export default function RegistroPage() {
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -41,8 +41,14 @@ export default function RegistroPage() {
       return;
     }
 
-    // Redirect to onboarding after signup
-    router.push("/onboarding");
+    // If user is created and session exists, go to onboarding
+    if (data.session) {
+      router.push("/onboarding");
+    } else {
+      // Email confirmation required - show message
+      setError("Revisa tu email para confirmar tu cuenta, luego inicia sesión.");
+      setLoading(false);
+    }
   };
 
   return (
