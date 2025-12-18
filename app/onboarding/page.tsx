@@ -234,7 +234,14 @@ export default function OnboardingPage() {
     });
 
     if (insertError) {
-      setError(insertError.message);
+      if (insertError.message.includes("profesionales_nif_key")) {
+        setError("Este NIF/CIF ya está registrado. Si es tuyo, contacta con soporte.");
+      } else if (insertError.message.includes("profesionales_user_id_key")) {
+        setError("Ya tienes un perfil creado. Redirigiendo...");
+        setTimeout(() => router.push("/dashboard"), 2000);
+      } else {
+        setError("Error al guardar: " + insertError.message);
+      }
       setLoading(false);
       return;
     }
