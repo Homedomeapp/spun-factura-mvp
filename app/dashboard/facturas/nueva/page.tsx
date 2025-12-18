@@ -33,6 +33,9 @@ export default function NuevaFacturaPage() {
     cliente_id: "",
     fecha_expedicion: new Date().toISOString().split("T")[0],
     descripcion: "",
+    aplicar_retencion: false,
+    porcentaje_retencion: 15,
+    es_vivienda_particular: false,
   });
 
   const [lineas, setLineas] = useState<Linea[]>([
@@ -45,6 +48,15 @@ export default function NuevaFacturaPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Cuando cambia "es_vivienda_particular", actualizar IVA de todas las líneas
+  useEffect(() => {
+    if (formData.es_vivienda_particular) {
+      setLineas(lineas.map(l => ({ ...l, tipo_iva: 10 })));
+    } else {
+      setLineas(lineas.map(l => ({ ...l, tipo_iva: 21 })));
+    }
+  }, [formData.es_vivienda_particular]);
 
   const loadData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -76,9 +88,10 @@ export default function NuevaFacturaPage() {
   };
 
   const addLinea = () => {
+    const tipoIva = formData.es_vivienda_particular ? 10 : 21;
     setLineas([
       ...lineas,
-      { id: Date.now().toString(), descripcion: "", cantidad: 1, precio_unitario: 0, tipo_iva: 21 },
+      { id: Date.now().toString(), descripcion: "", cantidad: 1, precio_unitario: 0, tipo_iva: tipoIva },
     ]);
   };
 
@@ -103,7 +116,10 @@ export default function NuevaFacturaPage() {
 
   const totalBase = lineas.reduce((sum, l) => sum + calcularBaseLinea(l), 0);
   const totalIva = lineas.reduce((sum, l) => sum + calcularIvaLinea(l), 0);
-  const totalFactura = totalBase + totalIva;
+  const totalRetencion = formData.aplicar_retencion 
+    ? totalBase * (formData.porcentaje_retencion / 100) 
+    : 0;
+  const totalFactura = totalBase + totalIva - totalRetencion;
 
   const handleSubmit = async () => {
     setError("");
@@ -133,7 +149,7 @@ export default function NuevaFacturaPage() {
         descripcion: formData.descripcion || null,
         base_imponible: totalBase,
         total_iva: totalIva,
-        total_retencion: 0,
+        total_retencion: totalRetencion,
         total: totalFactura,
         estado: "borrador",
       })
@@ -267,6 +283,72 @@ export default function NuevaFacturaPage() {
             </div>
           </div>
 
+          {/* IVA Reducido */}
+          <div className="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl border border-blue-200 p-6">
+            <div className="flex items-start gap-4">
+              <div className="flex-1">
+                <h2 className="font-semibold text-gray-900 mb-1">🏠 IVA Reducido para reformas</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  Si el trabajo es en una vivienda particular con más de 2 años de antigüedad, 
+                  puedes aplicar el 10% de IVA en lugar del 21%.
+                </p>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.es_vivienda_particular}
+                    onChange={(e) => setFormData({ ...formData, es_vivienda_particular: e.target.checked })}
+                    className="w-5 h-5 rounded border-gray-300 text-[#34CED6] focus:ring-[#34CED6]"
+                  />
+                  <span className="text-sm font-medium text-gray-900">
+                    Aplicar IVA reducido (10%) - Vivienda particular &gt; 2 años
+                  </span>
+                </label>
+              </div>
+              {formData.es_vivienda_particular && (
+                <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
+                  IVA 10%
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Retención IRPF */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-start gap-4">
+              <div className="flex-1">
+                <h2 className="font-semibold text-gray-900 mb-1">📋 Retención IRPF</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  Si facturas a una empresa o autónomo, pueden requerirte aplicar retención.
+                </p>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.aplicar_retencion}
+                    onChange={(e) => setFormData({ ...formData, aplicar_retencion: e.target.checked })}
+                    className="w-5 h-5 rounded border-gray-300 text-[#34CED6] focus:ring-[#34CED6]"
+                  />
+                  <span className="text-sm font-medium text-gray-900">
+                    Aplicar retención IRPF
+                  </span>
+                </label>
+                {formData.aplicar_retencion && (
+                  <div className="mt-3 flex items-center gap-3">
+                    <select
+                      value={formData.porcentaje_retencion}
+                      onChange={(e) => setFormData({ ...formData, porcentaje_retencion: parseInt(e.target.value) })}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#34CED6] outline-none bg-white"
+                    >
+                      <option value={7}>7% (nuevos autónomos)</option>
+                      <option value={15}>15% (general)</option>
+                      <option value={19}>19% (profesionales)</option>
+                    </select>
+                    <span className="text-sm text-gray-500">del total de la base imponible</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Líneas */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-4">
@@ -362,6 +444,12 @@ export default function NuevaFacturaPage() {
                 <span>IVA</span>
                 <span>{totalIva.toFixed(2)} €</span>
               </div>
+              {formData.aplicar_retencion && (
+                <div className="flex justify-between text-red-600">
+                  <span>Retención IRPF ({formData.porcentaje_retencion}%)</span>
+                  <span>-{totalRetencion.toFixed(2)} €</span>
+                </div>
+              )}
               <div className="border-t border-gray-200 pt-2 mt-2">
                 <div className="flex justify-between text-lg font-bold text-gray-900">
                   <span>Total</span>
