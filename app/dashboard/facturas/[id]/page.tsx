@@ -59,6 +59,7 @@ export default function FacturaDetailPage() {
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [desglose, setDesglose] = useState<DesgloseIva[]>([]);
   const [loading, setLoading] = useState(true);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const router = useRouter();
   const params = useParams();
   const supabase = createClient();
@@ -126,6 +127,28 @@ export default function FacturaDetailPage() {
     setLoading(false);
   };
 
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true);
+    try {
+      const response = await fetch(`/api/facturas/${params.id}/pdf`);
+      if (!response.ok) throw new Error("Error al generar PDF");
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Factura-${factura?.serie}-${factura?.numero}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("Error descargando PDF:", error);
+      alert("Error al descargar el PDF. Inténtalo de nuevo.");
+    }
+    setDownloadingPdf(false);
+  };
+
   const getEstadoColor = (estado: string) => {
     switch (estado) {
       case "registrada": return "bg-green-100 text-green-800";
@@ -154,6 +177,8 @@ export default function FacturaDetailPage() {
   }
 
   if (!factura) return null;
+
+  const hasIvaReducido = lineas.some((l) => l.tipo_iva === 10);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -277,6 +302,17 @@ export default function FacturaDetailPage() {
             </div>
           </div>
 
+          {/* Nota IVA reducido */}
+          {hasIvaReducido && (
+            <div className="mt-8 p-4 bg-blue-50 rounded-lg">
+              <p className="text-xs text-blue-700">
+                IVA reducido del 10% aplicado conforme al artículo 91.Uno.2.10º de la Ley 37/1992 del IVA,
+                para obras de renovación y reparación en viviendas particulares con más de 2 años de antigüedad,
+                donde el coste de materiales no supera el 40% del total.
+              </p>
+            </div>
+          )}
+
           {/* Verifactu badge */}
           {factura.estado === "registrada" && (
             <div className="mt-8 pt-8 border-t border-gray-200">
@@ -290,11 +326,15 @@ export default function FacturaDetailPage() {
 
         {/* Actions */}
         <div className="flex gap-4 mt-6">
-          <button className="flex-1 border border-gray-300 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors">
-            Descargar PDF
+          <button 
+            onClick={handleDownloadPdf}
+            disabled={downloadingPdf}
+            className="flex-1 bg-[#34CED6] hover:bg-[#2BB5BD] disabled:bg-gray-300 text-white py-3 rounded-lg font-semibold transition-colors"
+          >
+            {downloadingPdf ? "Generando PDF..." : "📄 Descargar PDF"}
           </button>
           <button className="flex-1 border border-gray-300 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors">
-            Enviar por email
+            ✉️ Enviar por email
           </button>
         </div>
       </main>
